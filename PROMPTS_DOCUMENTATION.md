@@ -152,3 +152,167 @@ CAPABILITIES
 ```
 
 ---
+
+### 1.4 System Information Section (Секция Системной Информации)
+
+**Файл:** `src/core/prompts/sections/system-info.ts:6-19`
+
+**Назначение:** Предоставляет агенту информацию о системном окружении пользователя, включая операционную систему, shell, домашнюю директорию и рабочую директорию проекта.
+
+**Ключевые данные:**
+- Операционная система
+- Дефолтный shell
+- Домашняя директория
+- Текущая рабочая директория проекта
+- Разъяснение разницы между workspace directory и working directory в терминале
+
+**Промт:**
+
+```markdown
+====
+
+SYSTEM INFORMATION
+
+Operating System: {osName()}
+Default Shell: {getShell()}
+Home Directory: {os.homedir()}
+Current Workspace Directory: {cwd}
+
+The Current Workspace Directory is the active VS Code project directory, and is therefore the default directory for all tool operations. New terminals will be created in the current workspace directory, however if you change directories in a terminal it will then have a different working directory; changing directories in a terminal does not modify the workspace directory, because you do not have access to change the workspace directory. When the user initially gives you a task, a recursive list of all filepaths in the current workspace directory will be included in environment_details. This provides an overview of the project's file structure, offering key insights into the project from directory/file names (how developers conceptualize and organize their code) and file extensions (the language used). This can also guide decision-making on which files to explore further. If you need to further explore directories such as outside the current workspace directory, you can use the list_files tool. If you pass 'true' for the recursive parameter, it will list files recursively. Otherwise, it will list files at the top level, which is better suited for generic directories where you don't necessarily need the nested structure, like the Desktop.
+```
+
+---
+
+### 1.5 Tool Use Guidelines Section (Секция Руководств по Использованию Инструментов)
+
+**Файл:** `src/core/prompts/sections/tool-use-guidelines.ts:5-68`
+
+**Назначение:** Предоставляет пошаговое руководство по правильному использованию инструментов. Это критически важный промт, который объясняет итеративный процесс работы с инструментами.
+
+**Ключевые принципы:**
+- Оценка имеющейся и необходимой информации
+- Обязательный приоритет `codebase_search` для новых областей кода
+- Выбор наиболее подходящего инструмента для задачи
+- Использование одного инструмента за раз
+- Обязательное ожидание подтверждения пользователя после каждого использования инструмента
+- Адаптация подхода на основе результатов
+
+**Промт:**
+
+```markdown
+# Tool Use Guidelines
+
+1. Assess what information you already have and what information you need to proceed with the task.
+[IF CODEBASE_SEARCH AVAILABLE:]
+2. **CRITICAL: For ANY exploration of code you haven't examined yet in this conversation, you MUST use the `codebase_search` tool FIRST before any other search or file exploration tools.** This applies throughout the entire conversation, not just at the beginning. The codebase_search tool uses semantic search to find relevant code based on meaning rather than just keywords, making it far more effective than regex-based search_files for understanding implementations. Even if you've already explored some code, any new area of exploration requires codebase_search first.
+3. Choose the most appropriate tool based on the task and the tool descriptions provided. After using codebase_search for initial exploration of any new code area, you may then use more specific tools like search_files (for regex patterns), list_files, or read_file for detailed examination. For example, using the list_files tool is more effective than running a command like `ls` in the terminal. It's critical that you think about each available tool and use the one that best fits the current step in the task.
+[IF NO CODEBASE_SEARCH:]
+2. Choose the most appropriate tool based on the task and the tool descriptions provided. Assess if you need additional information to proceed, and which of the available tools would be most effective for gathering this information. For example using the list_files tool is more effective than running a command like `ls` in the terminal. It's critical that you think about each available tool and use the one that best fits the current step in the task.
+3+. If multiple actions are needed, use one tool at a time per message to accomplish the task iteratively, with each tool use being informed by the result of the previous tool use. Do not assume the outcome of any tool use. Each step must be informed by the previous step's result.
+[IF XML PROTOCOL:]
+N. Formulate your tool use using the XML format specified for each tool.
+N+1. After each tool use, the user will respond with the result of that tool use. This result will provide you with the necessary information to continue your task or make further decisions. This response may include:
+  - Information about whether the tool succeeded or failed, along with any reasons for failure.
+  - Linter errors that may have arisen due to the changes you made, which you'll need to address.
+  - New terminal output in reaction to the changes, which you may need to consider or act upon.
+  - Any other relevant feedback or information related to the tool use.
+N+2. ALWAYS wait for user confirmation after each tool use before proceeding. Never assume the success of a tool use without explicit confirmation of the result from the user.
+
+It is crucial to proceed step-by-step, waiting for the user's message after each tool use before moving forward with the task. This approach allows you to:
+1. Confirm the success of each step before proceeding.
+2. Address any issues or errors that arise immediately.
+3. Adapt your approach based on new information or unexpected results.
+4. Ensure that each action builds correctly on the previous ones.
+
+By waiting for and carefully considering the user's response after each tool use, you can react accordingly and make informed decisions about how to proceed with the task. This iterative process helps ensure the overall success and accuracy of your work.
+```
+
+---
+
+### 1.6 Modes Section (Секция Режимов)
+
+**Файл:** `src/core/prompts/sections/modes.ts:8-42`
+
+**Назначение:** Информирует агента о доступных режимах работы и когда их использовать. Каждый режим имеет специализированное поведение для определенных типов задач.
+
+**Ключевые аспекты:**
+- Список всех доступных режимов с описаниями
+- Информация о том, когда использовать каждый режим
+- Инструкция по созданию новых режимов через `fetch_instructions`
+
+**Промт:**
+
+```markdown
+====
+
+MODES
+
+- These are the currently available modes:
+  * "{mode.name}" mode ({mode.slug}) - {mode.whenToUse или первое предложение roleDefinition}
+  [... список всех режимов ...]
+
+If the user asks you to create or edit a new mode for this project, you should read the instructions by using the fetch_instructions tool, like this:
+<fetch_instructions>
+<task>create_mode</task>
+</fetch_instructions>
+```
+
+---
+
+### 1.7 Custom Instructions Section (Секция Пользовательских Инструкций)
+
+**Файл:** `src/core/prompts/sections/custom-instructions.ts:265-387`
+
+**Назначение:** Загружает и применяет пользовательские инструкции из различных источников. Это позволяет пользователям настраивать поведение агента под свои специфические нужды.
+
+**Источники кастомных инструкций:**
+1. **Языковые предпочтения** - из настроек языка
+2. **Глобальные инструкции** - из `~/.roo/instructions`
+3. **Инструкции режима** - из настроек конкретного режима
+4. **Файлы правил в проекте:**
+   - `.roo/rules/*.md` - общие правила для всех режимов
+   - `.roo/rules-{mode}/*.md` - правила для конкретного режима
+5. **AGENTS.md** - специальный файл с инструкциями для агентов
+6. **Общие файлы правил** - `rules.md`, `.clinerules`, etc.
+
+**Ключевые особенности:**
+- Поддержка символических ссылок
+- Рекурсивная загрузка из директорий
+- Приоритет локальных правил над глобальными
+- Поддержка правил для специфичных режимов
+
+**Структура:**
+
+```markdown
+[IF LANGUAGE PREFERENCE:]
+Language preference: {language}
+Ensure all communication is in {language}.
+
+[IF GLOBAL INSTRUCTIONS exist in ~/.roo/instructions:]
+{content of global instructions}
+
+[IF MODE-SPECIFIC CUSTOM INSTRUCTIONS from mode config:]
+{customInstructions from mode}
+
+[IF .roo/rules/ directory exists:]
+# Project Rules
+
+{content of all .md files from .roo/rules/}
+
+[IF .roo/rules-{mode}/ directory exists:]
+# {Mode} Mode Rules
+
+{content of all .md files from .roo/rules-{mode}/}
+
+[IF AGENTS.md exists:]
+# Agent Instructions
+
+{content of AGENTS.md}
+
+[IF rules.md or .clinerules exists:]
+# Additional Rules
+
+{content of rules files}
+```
+
+---

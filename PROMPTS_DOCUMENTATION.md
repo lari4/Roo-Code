@@ -562,3 +562,269 @@ Parameters:
 **Назначение:** AI генерация и редактирование изображений через OpenRouter.
 
 ---
+
+## Промты Режимов
+
+Эти промты определяют специализированные режимы работы агента. Каждый режим имеет свою роль, набор инструментов и кастомные инструкции.
+
+**Файл:** `.roomodes:1-239`
+
+### 3.1 Test Mode (Режим Тестирования)
+
+**Slug:** `test`
+
+**Назначение:** Специалист по написанию и поддержке тестов с использованием Vitest.
+
+**Роль:** Vitest testing specialist с экспертизой в:
+- Написание и поддержка Vitest test suites
+- Test-driven development (TDD)
+- Mocking и stubbing
+- Integration testing strategies
+- TypeScript testing patterns
+- Code coverage analysis
+
+**Когда использовать:** Когда нужно писать, изменять или поддерживать тесты.
+
+**Доступные инструменты:** read, browser, command, edit (только для тестовых файлов)
+
+**Ограничения на редактирование:** Только файлы matching `(__tests__/.*|__mocks__/.*|\.test\.(ts|tsx|js|jsx)$|\.spec\.(ts|tsx|js|jsx)$|/test/.*|vitest\.config\.(js|ts)$|vitest\.setup\.(js|ts)$)`
+
+**Кастомные инструкции:**
+- Всегда использовать describe/it блоки
+- Meaningful test descriptions
+- beforeEach/afterEach для изоляции тестов
+- Реализация error cases
+- JSDoc комментарии для сложных сценариев
+- Использовать data-testid атрибуты для webview-ui тестов
+- describe/test/it функции определены в tsconfig.json, не импортировать
+- Тесты запускать из директории с package.json, где есть vitest в devDependencies
+
+---
+
+### 3.2 Design Engineer Mode (Режим Дизайн Инженера)
+
+**Slug:** `design-engineer`
+
+**Назначение:** Эксперт по разработке UI с использованием React, Shadcn, Tailwind и TypeScript.
+
+**Роль:** Design Engineer для VSCode Extension разработки с экспертизой в:
+- Реализация UI дизайнов с высокой точностью
+- Responsive интерфейсы
+- Перевод требований в детальные дизайны
+- Единообразие UI
+
+**Когда использовать:** Реализация UI дизайнов и обеспечение консистентности.
+
+**Ограничения на редактирование:** Только `\.(css|html|json|mdx?|jsx?|tsx?|svg)$`
+
+**Кастомные инструкции:**
+- Задавать вопросы по одному при создании нового компонента
+- Всегда использовать Tailwind utility classes
+- Использовать Tailwind CSS V4 (не создавать tailwind.config.js)
+- Предпочитать Shadcn компоненты
+- Использовать i18n для локализации (не оставлять placeholder строки)
+- Использовать алиасы @roo и @src
+- Предлагать рефакторинг файлов >1000 строк
+- Предлагать переключение в Translate mode после завершения
+
+---
+
+### 3.3 Translate Mode (Режим Перевода)
+
+**Slug:** `translate`
+
+**Назначение:** Лингвистический специалист по переводу и управлению локализационными файлами.
+
+**Когда использовать:** Перевод и управление локализационными файлами.
+
+**Ограничения на редактирование:** `(.*\.(md|ts|tsx|js|jsx)$|.*\.json$)`
+
+---
+
+### 3.4 Issue Fixer Mode (Режим Исправления Issues)
+
+**Slug:** `issue-fixer`
+
+**Назначение:** GitHub issue resolution specialist - исправление багов и реализация feature requests из GitHub issues.
+
+**Роль:** Специалист по резолюции GitHub issues с экспертизой в:
+- Анализ GitHub issues для понимания требований
+- Исследование кодовой базы
+- Реализация фиксов с comprehensive testing
+- Создание pull requests с документацией
+- Использование GitHub CLI (gh)
+
+**Когда использовать:** Когда есть GitHub issue (bug report или feature request) для исправления или реализации.
+
+**Доступные инструменты:** read, edit, command
+
+---
+
+### 3.5 Integration Tester Mode (Режим Интеграционного Тестирования)
+
+**Slug:** `integration-tester`
+
+**Назначение:** Integration testing specialist для VSCode E2E тестов.
+
+**Роль:** Эксперт по интеграционному тестированию с использованием Mocha и VSCode Test framework:
+- E2E тесты для Roo Code API
+- Event-driven workflows
+- Сложные multi-step task scenarios
+- Валидация message formats и API responses
+- Test data generation и fixture management
+
+**Когда использовать:** Написание, изменение или поддержка интеграционных тестов.
+
+**Ограничения на редактирование:** `(apps/vscode-e2e/.*\.(ts|js)$|packages/types/.*\.ts$)`
+
+---
+
+### 3.6 Docs Extractor Mode (Режим Экстракции Документации)
+
+**Slug:** `docs-extractor`
+
+**Назначение:** Documentation analysis specialist с двумя функциями:
+1. Извлечение технических деталей о функциях для команд документации
+2. Проверка существующей документации на фактическую точность
+
+**Когда использовать:** 
+1. Подтверждение точности документации против кодовой базы
+2. Генерация исходного материала для user-facing docs о функции
+
+**Ограничения на редактирование:** Только файлы отчетов: `(EXTRACTION-.*\.md$|VERIFICATION-.*\.md$|DOCS-TEMP-.*\.md$|\.roo/docs-extractor/.*\.md$)`
+
+**Важно:** Не генерирует финальную user-facing документацию, только детальный анализ и verification reports.
+
+---
+
+### 3.7 PR Fixer Mode (Режим Исправления PR)
+
+**Slug:** `pr-fixer`
+
+**Назначение:** Pull request resolution specialist для устранения feedback и проблем в PR.
+
+**Роль:** Специалист по резолюции PR с экспертизой в:
+- Анализ PR review comments
+- Проверка CI/CD workflow статусов
+- Fetching и анализ test logs
+- Резолюция merge conflicts
+- Guidance through resolution process
+
+**Когда использовать:** Исправление pull requests - анализ PR feedback, failing tests, merge conflicts.
+
+---
+
+### 3.8 Issue Investigator Mode (Режим Расследования Issues)
+
+**Slug:** `issue-investigator`
+
+**Назначение:** GitHub issue investigator для анализа issues и предложения решений.
+
+**Роль:** Методически исследует GitHub issues:
+- Анализ вероятных причин через extensive codebase searches
+- Предложение well-reasoned, theoretical solutions
+- Tracking investigation через todo list
+- Попытки опровергнуть initial theories для thorough analysis
+- Финальный output - human-like, conversational comment для GitHub issue
+
+**Когда использовать:** Расследование GitHub issue для понимания root cause и предложения решения. Идеален для triage issues перед началом implementation.
+
+**Инструменты:** Использует `gh` CLI для issue interaction.
+
+---
+
+### 3.9 Merge Resolver Mode (Режим Разрешения Конфликтов)
+
+**Slug:** `merge-resolver`
+
+**Назначение:** Merge conflict resolution specialist.
+
+**Роль:** Специалист по разрешению merge conflicts с экспертизой в:
+- Анализ PR merge conflicts через git blame и commit history
+- Понимание code intent через commit messages и diffs
+- Intelligent decisions о том, какие изменения сохранить/объединить/отбросить
+- Использование git commands и GitHub CLI для контекста
+- Приоритизация изменений на основе intent (bugfix vs feature vs refactor)
+
+**Workflow:**
+1. Получает PR number (например, "#123")
+2. Fetches PR информацию
+3. Identifies и анализирует merge conflicts
+4. Использует git blame для истории
+5. Examines commit messages для infer developer intent
+6. Применяет intelligent resolution strategies
+7. Stages resolved files
+
+**Когда использовать:** Разрешение merge conflicts для specific PR, где понимание intent crucial для proper resolution.
+
+---
+
+### 3.10 Issue Writer Mode (Режим Создания Issues)
+
+**Slug:** `issue-writer`
+
+**Назначение:** GitHub issue creation specialist для создания well-structured bug reports и feature proposals.
+
+**Роль:** Создает comprehensive issues через:
+- Exploration кодовой базы для technical context
+- Верификация claims против actual implementation
+- Использование GitHub CLI (gh) commands
+- Работа с любым repository (standard или monorepo)
+- Динамическое discovery packages в monorepos
+
+**Важная особенность - Initialization:**
+Режим ASSUMES первое user message УЖЕ request to create issue. Пользователь не должен говорить "create an issue" - его первое сообщение treated как issue description itself.
+
+**Workflow (автоматический):**
+1. Treat user's first message как issue description
+2. Initialize workflow через update_todo_list
+3. Begin issue creation process без asking what they want to do
+
+**Todo List Steps:**
+- Detect current repository information
+- Determine repository structure (monorepo/standard)
+- Perform initial codebase discovery
+- Analyze user request to determine issue type
+- Gather and verify additional information
+- Determine if user wants to contribute
+- Perform issue scoping (if contributing)
+- Draft issue content
+- Review and confirm with user
+- Create GitHub issue
+
+**Когда использовать:** Когда нужно создать GitHub issue. Просто начните описывать bug или feature request - режим сразу начнет workflow.
+
+---
+
+### 3.11 Mode Writer Mode (Режим Создания Режимов)
+
+**Slug:** `mode-writer`
+
+**Назначение:** Mode creation and editing specialist для designing, implementing и enhancing custom modes.
+
+**Роль:** Специалист по mode system с экспертизой в:
+- Understanding mode system architecture и configuration
+- Создание well-structured mode definitions
+- Editing и enhancing existing modes
+- Написание comprehensive XML-based special instructions
+- Обеспечение appropriate tool group permissions
+- Crafting clear whenToUse descriptions для Orchestrator
+- XML structuring best practices
+- Validation для cohesion и preventing contradictions
+
+**Функции:**
+1. **Создание новых modes:** Requirements gathering, configuration definition, XML instructions implementation
+2. **Editing existing modes:** Immersion в current implementation, analyzing changes, cohesive updates
+
+**Стратегия:**
+- Использование ask_followup_question агрессивно для clarify ambiguities
+- Thorough validation всех изменений
+- Well-organized instructions с proper XML tags
+- Following established patterns
+- Maintaining consistency
+
+**Когда использовать:** Создание нового custom mode или редактирование существующего.
+
+**Ограничения на редактирование:** `(\.roomodes$|\.roo/.*\.xml$|\.yaml$)` - mode configuration files и XML instructions.
+
+---

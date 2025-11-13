@@ -150,3 +150,284 @@ Output:
 ```
 
 ---
+
+## 2. Task Execution Pipeline
+
+**Файл:** `src/core/task/Task.ts`
+
+**Назначение:** Основной цикл выполнения задач - обработка сообщений пользователя, вызовы API, выполнение инструментов и управление состоянием.
+
+### Общая Схема Pipeline
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   Task Initialization                       │
+│  Entry Points:                                             │
+│  • startTask(task: string)                                 │
+│  • resumeTaskFromHistory(historyItem)                      │
+│  • startSubtask(content)                                   │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│           Setup Phase                                       │
+│  1. Load/Initialize State                                  │
+│     • this.taskId = generateId()                           │
+│     • this.dirAbsolutePath = cwd                           │
+│     • this.apiConversationHistory = []                     │
+│  2. Setup Provider (Anthropic/OpenRouter/etc)              │
+│  3. Setup Mode                                             │
+│     • await this.taskModeReady promise                     │
+│  4. Add User Message                                       │
+│     • pushToolResult(userMessage)                          │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│        Main Task Loop - initiateTaskLoop()                 │
+│                                                            │
+│  Loop Until: attempt_completion OR user intervention      │
+│                                                            │
+│  ┌─────────────────────────────────────────────┐          │
+│  │ 1. Regenerate System Prompt                 │          │
+│  │    • SYSTEM_PROMPT(context, currentMode)    │          │
+│  │                                             │          │
+│  │ 2. Build API Request                        │          │
+│  │    • systemPrompt                           │          │
+│  │    • apiConversationHistory                 │          │
+│  │    • tools catalog                          │          │
+│  │                                             │          │
+│  │ 3. Call recursivelyMakeClineRequests()      │          │
+│  │    ├─> Make API request                     │          │
+│  │    ├─> Stream response                      │          │
+│  │    ├─> Execute tools                        │          │
+│  │    └─> Accumulate results                   │          │
+│  │                                             │          │
+│  │ 4. Check Loop Continuation                  │          │
+│  │    • If attempt_completion → Break          │          │
+│  │    • If user feedback → Continue            │          │
+│  │    • If error → Handle and continue/break   │          │
+│  └─────────────────────────────────────────────┘          │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│                Task Completion                             │
+│  • Save state                                              │
+│  • Update UI                                               │
+│  • Return result                                           │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Детальная Схема recursivelyMakeClineRequests()
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│       recursivelyMakeClineRequests()                               │
+│       (Core Request/Response Loop)                                 │
+└────────────────┬───────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Phase 1: Pre-Request Preparation                                  │
+│  • Lock presentAssistantMessageLocked                              │
+│  • Check userMessageContentReady flag                              │
+│  • If not ready → Wait for user to provide content                 │
+└────────────────┬───────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Phase 2: API Request                                              │
+│  • attemptApiRequest(previousApiReqIndex)                          │
+│    ├─ Build request params                                         │
+│    │  • systemPrompt (regenerated each time!)                      │
+│    │  • messages: apiConversationHistory                           │
+│    │  • tools: available tools for current mode                    │
+│    ├─ Call API provider                                            │
+│    │  └─> Returns streaming response                               │
+│    └─ Return ApiHistoryItem with response                          │
+└────────────────┬───────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Phase 3: Response Streaming & Processing                          │
+│  • presentAssistantMessage(apiHistoryItem)                         │
+│    ├─ Stream assistant's text response                             │
+│    ├─ Parse tool calls (XML or Native protocol)                    │
+│    │  └─> Extract tool name, parameters                            │
+│    ├─ Display in UI incrementally                                  │
+│    └─ Wait for stream completion                                   │
+└────────────────┬───────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Phase 4: Tool Execution                                           │
+│  • For each tool call in response:                                 │
+│    ┌──────────────────────────────────────────────┐               │
+│    │ 1. Validate Tool Use                         │               │
+│    │    • Check mode permissions                  │               │
+│    │    • Check file restrictions                 │               │
+│    │                                              │               │
+│    │ 2. Get User Approval (if needed)             │               │
+│    │    • Some tools require confirmation         │               │
+│    │    • alwaysAllow tools skip this             │               │
+│    │                                              │               │
+│    │ 3. Execute Tool                              │               │
+│    │    • Call tool.execute(params)               │               │
+│    │    • Get result                              │               │
+│    │                                              │               │
+│    │ 4. Accumulate Result                         │               │
+│    │    • Add to userMessageContent array         │               │
+│    │    • Format for API (text + images)          │               │
+│    └──────────────────────────────────────────────┘               │
+└────────────────┬───────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Phase 5: Loop Decision                                            │
+│  • Check if attempt_completion was used                            │
+│  │  └─> YES: Task complete, exit loop                             │
+│  │  └─> NO: Continue to next iteration                            │
+│  •                                                                 │
+│  • If continuing:                                                  │
+│  │  1. Add userMessageContent to apiConversationHistory            │
+│  │  2. Set userMessageContentReady = true                          │
+│  │  3. RECURSIVE CALL: recursivelyMakeClineRequests()             │
+│  │     └─> Creates queue-based stack of requests                  │
+│  │                                                                 │
+│  • If error or user intervention:                                 │
+│  │  └─> Handle appropriately and decide continuation              │
+└────────────────┬───────────────────────────────────────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────────────────────────────────────┐
+│  Return to initiateTaskLoop() or Exit                              │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+### Data Flow Diagram
+
+```
+User Input
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Initial userMessage                │
+│  { type: "text", text: "..." }      │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  apiConversationHistory             │
+│  [                                  │
+│    { role: "user",                  │
+│      content: [userMessage] }       │
+│  ]                                  │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+       ┌──────────────┐
+       │  API Request │
+       └──────┬───────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│  API Response                       │
+│  {                                  │
+│    role: "assistant",               │
+│    content: [                       │
+│      { type: "text", text: "..." }, │
+│      { type: "tool_use",            │
+│        name: "read_file",           │
+│        input: {...} }               │
+│    ]                                │
+│  }                                  │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  Tool Execution Results             │
+│  userMessageContent = [             │
+│    { type: "text",                  │
+│      text: "Tool executed..." },    │
+│    { type: "tool_result",           │
+│      tool_use_id: "...",            │
+│      content: "file contents..." }  │
+│  ]                                  │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  Add to apiConversationHistory      │
+│  [                                  │
+│    ... previous messages,           │
+│    { role: "assistant", ... },      │
+│    { role: "user",                  │
+│      content: userMessageContent }  │
+│  ]                                  │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+          Next API Request
+          (loop continues)
+```
+
+### Critical Synchronization Points
+
+```
+Synchronization Mechanisms:
+
+1. presentAssistantMessageLocked (Mutex)
+   └─> Prevents concurrent streaming
+       Only one API response can be processed at a time
+
+2. userMessageContentReady (Flag)
+   └─> Gates next API request
+       Must wait for all tool executions to complete
+
+3. taskModeReady (Promise)
+   └─> Ensures mode is initialized before starting task
+       Waits for mode configuration to load
+
+4. Streaming Completion
+   └─> Must wait for full response before executing tools
+       Prevents partial tool calls
+```
+
+### Ключевые Функции
+
+**Initialization:**
+- `startTask(task: string)` - начало новой задачи
+- `resumeTaskFromHistory(item)` - возобновление из истории
+- `startSubtask(content)` - создание подзадачи
+
+**Main Loop:**
+- `initiateTaskLoop()` - главный цикл задачи
+- `recursivelyMakeClineRequests()` - рекурсивный request/response loop
+
+**API Communication:**
+- `attemptApiRequest(index)` - вызов API провайдера
+- `buildApiRequest()` - построение request params
+
+**Message Processing:**
+- `presentAssistantMessage(item)` - обработка и отображение ответа
+- `addToApiConversationHistory()` - добавление в историю
+
+**Tool Execution:**
+- `executeTool(tool, params)` - выполнение инструмента
+- `formatToolResult(result)` - форматирование результата
+
+### State Management
+
+```
+Task State:
+├── taskId: string (unique identifier)
+├── dirAbsolutePath: string (working directory)
+├── apiConversationHistory: Message[] (full conversation)
+├── clineMessages: ClineMessage[] (UI display history)
+├── userMessageContent: MessageContent[] (accumulated tool results)
+├── userMessageContentReady: boolean (ready for next request)
+└── presentAssistantMessageLocked: boolean (streaming in progress)
+```
+
+---

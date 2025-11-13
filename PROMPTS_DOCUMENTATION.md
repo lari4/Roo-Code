@@ -1060,3 +1060,206 @@ ${selectedText}
 **Назначение:** Создание новых task instances в режимах.
 
 ---
+
+## Инструкции (Instructions)
+
+Эти промты предоставляют детальные инструкции для выполнения специфичных задач, таких как создание режимов или MCP серверов.
+
+### 6.1 Create Mode Instructions - Создание Режимов
+
+**Файл:** `src/core/prompts/instructions/create-mode.ts:13-63`
+
+**Назначение:** Инструкции по созданию кастомных режимов в двух форматах - глобальных и проектных.
+
+**Ключевые концепции:**
+
+**Два типа конфигурации:**
+1. **Глобальные режимы:** `~/.roo/custom-modes.yaml` (создается автоматически)
+2. **Проектные режимы:** `.roomodes` в корне workspace
+
+**Приоритет:** Workspace-specific .roomodes перезаписывает глобальные режимы с тем же slug.
+
+**Обязательные поля:**
+- `slug` - уникальный slug (lowercase, numbers, hyphens). Короче = лучше
+- `name` - display name режима
+- `roleDefinition` - детальное описание роли и capabilities (НЕ пустое)
+- `groups` - массив разрешенных tool groups (может быть пустым)
+
+**Опциональные но рекомендуемые поля:**
+- `description` - короткое описание (5 слов)
+- `whenToUse` - когда использовать режим (для Orchestrator)
+- `customInstructions` - дополнительные инструкции
+
+**Структура YAML:**
+
+```yaml
+customModes:
+  - slug: designer
+    name: Designer
+    description: UI/UX design systems expert  # 5 words
+    roleDefinition: >-
+      You are Roo, a UI/UX expert specializing in design systems and frontend development.
+      Your expertise includes:
+      - Creating and maintaining design systems
+      - Implementing responsive and accessible web interfaces
+      - Working with CSS, HTML, and modern frontend frameworks
+      - Ensuring consistent user experiences across platforms
+    whenToUse: >-
+      Use this mode when creating or modifying UI components, implementing design systems,
+      or ensuring responsive web interfaces. This mode is especially effective with CSS,
+      HTML, and modern frontend frameworks.
+    groups:
+      - read     # Read files group
+      - edit     # Edit files group - allows editing any file
+      # Or with file restrictions:
+      # - - edit
+      #   - fileRegex: \\.md$
+      #     description: Markdown files only
+      - browser  # Browser group
+      - command  # Command group
+      - mcp      # MCP group
+    customInstructions: Additional instructions for the Designer mode
+```
+
+**Tool Groups:**
+- `read` - read_file, fetch_instructions, search_files, list_files, list_code_definition_names
+- `edit` - apply_diff, write_to_file (с опциональными fileRegex ограничениями)
+- `browser` - browser_action
+- `command` - execute_command
+- `mcp` - use_mcp_tool, access_mcp_resource
+
+---
+
+### 6.2 Create MCP Server Instructions - Создание MCP Серверов
+
+**Файл:** `src/core/prompts/instructions/create-mcp-server.ts:10-266+`
+
+**Назначение:** Детальные инструкции по созданию и конфигурации MCP серверов для расширения функциональности агента.
+
+**Важная концепция - Non-Interactive Environment:**
+MCP серверы работают в non-interactive окружении:
+- НЕ могут инициировать OAuth flows
+- НЕ могут открывать browser windows
+- НЕ могут prompt for user input во время runtime
+- ВСЕ credentials и auth tokens должны быть предоставлены upfront через environment variables
+
+**Для OAuth:** Может понадобиться создать separate one-time setup script (например, get-refresh-token.js) для получения refresh token.
+
+**Два типа MCP серверов:**
+
+1. **Local (Stdio) Server Configuration:**
+
+```json
+{
+  "mcpServers": {
+    "local-weather": {
+      "command": "node",
+      "args": ["/path/to/weather-server/build/index.js"],
+      "env": {
+        "OPENWEATHER_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+2. **Remote (SSE) Server Configuration:**
+
+```json
+{
+  "mcpServers": {
+    "remote-weather": {
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer your-api-key"
+      }
+    }
+  }
+}
+```
+
+**Общие опции конфигурации:**
+- `disabled` - (optional) временно отключить сервер
+- `timeout` - (optional) максимальное время ожидания ответа в секундах (default: 60)
+- `alwaysAllow` - (optional) массив tool names, не требующих user confirmation
+- `disabledTools` - (optional) массив tool names, которые не включаются в system prompt
+
+**Пример создания Local MCP Server:**
+
+**Шаги:**
+
+1. **Bootstrap проекта:**
+```bash
+cd ~/.roo/mcp-servers
+npx @modelcontextprotocol/create-server weather-server
+cd weather-server
+npm install axios zod @modelcontextprotocol/sdk
+```
+
+2. **Структура проекта:**
+```
+weather-server/
+  ├── package.json
+  │     {
+  │       "type": "module",  // ES module syntax
+  │       "scripts": {
+  │         "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\""
+  │       }
+  │     }
+  ├── tsconfig.json
+  └── src/
+      └── index.ts      # Main server implementation
+```
+
+3. **Реализация в src/index.ts:**
+- Импорты: McpServer, StdioServerTransport, z (zod), axios
+- API_KEY из process.env (предоставляется MCP config)
+- Создание server instance
+- Регистрация tools с zod schemas для параметров
+- Регистрация resources и resource templates (опционально)
+- Запуск сервера через StdioServerTransport
+
+4. **Build:**
+```bash
+npm run build
+```
+
+5. **Конфигурация в MCP settings:**
+```json
+{
+  "mcpServers": {
+    "weather": {
+      "command": "node",
+      "args": ["/path/to/weather-server/build/index.js"],
+      "env": {
+        "OPENWEATHER_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+**Best Practices:**
+- Предпочитать tools вместо resources (более гибкие)
+- Resources и resource templates в основном для демонстрации capabilities
+- Real servers обычно только expose tools для fetching data
+- Проверять API_KEY в начале сервера
+- Использовать zod для валидации параметров
+- Обрабатывать ошибки и возвращать meaningful error messages
+
+---
+
+## Заключение
+
+Эта документация охватывает все основные категории AI промтов в Roo Code:
+
+1. **Core System Prompts** - определяют базовое поведение агента
+2. **Tool Prompts** - описывают все доступные инструменты
+3. **Mode Prompts** - специализированные режимы для различных задач
+4. **Rules** - правила качества и специфичные guidelines
+5. **Support Prompts** - вспомогательные функции
+6. **Instructions** - детальные инструкции для сложных задач
+
+Все промты работают вместе, формируя комплексную систему, которая направляет поведение AI агента в различных контекстах и задачах.
+
+---

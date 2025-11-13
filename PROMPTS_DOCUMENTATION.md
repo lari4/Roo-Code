@@ -828,3 +828,235 @@ Parameters:
 **Ограничения на редактирование:** `(\.roomodes$|\.roo/.*\.xml$|\.yaml$)` - mode configuration files и XML instructions.
 
 ---
+
+## Правила и Руководства
+
+Эти файлы содержат специфичные правила и руководства для поведения агента в различных контекстах.
+
+### 4.1 Глобальные Правила Качества Кода
+
+**Файл:** `.roo/rules/rules.md:1-25`
+
+**Назначение:** Общие правила качества кода, применяемые ко всем режимам.
+
+**Ключевые правила:**
+
+1. **Test Coverage:**
+   - Всегда проверять test coverage перед attempt_completion
+   - Обязательное прохождение всех тестов
+   - Vitest framework (vi, describe, test, it определены в tsconfig.json)
+   - Тесты запускать из директории с package.json
+   - Backend tests: `cd src && npx vitest run path/to/test-file`
+   - UI tests: `cd webview-ui && npx vitest run src/path/to/test-file`
+
+2. **Lint Rules:**
+   - Никогда не отключать lint rules без explicit user approval
+
+3. **Styling Guidelines:**
+   - Использовать Tailwind CSS classes вместо inline style objects
+   - VSCode CSS variables добавлять в webview-ui/src/index.css перед использованием
+
+**Промт:**
+
+```markdown
+# Code Quality Rules
+
+1. Test Coverage:
+   - Before attempting completion, always make sure that any code changes have test coverage
+   - Ensure all tests pass before submitting changes
+   - The vitest framework is used for testing
+   - Tests must be run from the same directory as the package.json file that specifies vitest in devDependencies
+   - Run tests with: npx vitest run <relative-path-from-workspace-root>
+   - Tests must be run from inside the correct workspace
+
+2. Lint Rules:
+   - Never disable any lint rules without explicit user approval
+
+3. Styling Guidelines:
+   - Use Tailwind CSS classes instead of inline style objects for new markup
+   - VSCode CSS variables must be added to webview-ui/src/index.css before using them
+```
+
+---
+
+### 4.2 Правила Режима Translate
+
+**Файл:** `.roo/rules-translate/001-general-rules.md:1-107`
+
+**Назначение:** Специфичные правила для режима перевода.
+
+**Ключевые разделы:**
+
+1. **Поддерживаемые языки:**
+   - ca, de, en, es, fr, hi, id, it, ja, ko, nl, pl, pt-BR, ru, tr, vi, zh-CN, zh-TW
+   - Две области локализации: Core Extension (src/i18n/) и WebView UI (webview-ui/src/i18n/)
+
+2. **Voice, Style and Tone:**
+   - Всегда использовать informal speech (например, "du" вместо "Sie" в немецком)
+   - Direct и concise style
+   - Учитывать colloquialisms и idiomatic expressions
+   - Culturally relevant translations, не literal
+   - Не переводить domain-specific слова (token, Prompt и т.д.)
+
+3. **Core Extension Localization:**
+   - Не все строки требуют интернационализации - только user-facing
+   - Internal error messages остаются на английском
+   - Использование t() функции с namespaces
+   - Сохранение interpolation variables
+
+4. **WebView UI Localization:**
+   - Использование React i18next с useTranslation hook
+   - Все UI strings должны быть internationalized
+   - Trans component для текста с embedded components
+
+5. **Technical Implementation:**
+   - JSON файлы для переводов
+   - Nested structure для организации
+   - i18next для runtime switching
+   - Автоматический fallback на английский
+
+**Инструкции по локализации:**
+- Никогда не переводить placeholder переменные
+- Сохранять форматирование и структуру JSON
+- Testing через language picker в UI
+- Common pitfalls и QA checklist
+
+---
+
+### 4.3 Правила Use safeWriteJson
+
+**Файл:** `.roo/rules-code/use-safeWriteJson.md:1-6`
+
+**Назначение:** Требование использования safeWriteJson utility для записи JSON файлов.
+
+**Промт:**
+
+```markdown
+When writing JSON files, you must use the safeWriteJson utility function defined at src/utils/fs.ts. Use this function instead of manual fs.writeFile calls to ensure proper formatting and error handling when writing JSON data.
+```
+
+---
+
+### 4.4 Языковые Инструкции Перевода
+
+**Файлы:** `.roo/rules-translate/instructions-{lang}.md`
+
+**Назначение:** Специфичные инструкции для перевода на конкретные языки.
+
+**Доступные языки:**
+- German (de)
+- Simplified Chinese (zh-cn)
+- Traditional Chinese (zh-tw)
+
+---
+
+## Пользовательские Промты (Support Prompts)
+
+Эти промты используются для вспомогательных функций и улучшения пользовательского опыта.
+
+**Файл:** `src/shared/support-prompt.ts:48-177`
+
+### 5.1 ENHANCE - Улучшение Промтов
+
+**Назначение:** Генерация улучшенной версии промта пользователя.
+
+**Промт:**
+
+```markdown
+Generate an enhanced version of this prompt (reply with only the enhanced prompt - no conversation, explanations, lead-in, bullet points, placeholders, or surrounding quotes):
+
+${userInput}
+```
+
+---
+
+### 5.2 CONDENSE - Суммаризация Разговора
+
+**Назначение:** Создание детального summary разговора для сохранения контекста.
+
+**Структура summary:**
+1. **Previous Conversation:** High level детали обсуждений
+2. **Current Work:** Детальное описание текущей работы
+3. **Key Technical Concepts:** Технологии, frameworks, coding conventions
+4. **Relevant Files and Code:** Specific files и code sections
+5. **Problem Solving:** Решенные проблемы и troubleshooting
+6. **Pending Tasks and Next Steps:** Outstanding работы с direct quotes
+
+**Промт:**
+
+```markdown
+Your task is to create a detailed summary of the conversation so far, paying close attention to the user's explicit requests and your previous actions.
+This summary should be thorough in capturing technical details, code patterns, and architectural decisions that would be essential for continuing with the conversation and supporting any continuing tasks.
+
+Your summary should be structured as follows:
+Context: The context to continue the conversation with. If applicable based on the current task, this should include:
+  1. Previous Conversation: High level details about what was discussed
+  2. Current Work: Describe in detail what was being worked on
+  3. Key Technical Concepts: List all important technical concepts
+  4. Relevant Files and Code: Enumerate specific files and code sections
+  5. Problem Solving: Document problems solved and ongoing troubleshooting
+  6. Pending Tasks and Next Steps: Outline all pending tasks with direct quotes
+
+Output only the summary of the conversation so far, without any additional commentary or explanation.
+```
+
+---
+
+### 5.3 EXPLAIN - Объяснение Кода
+
+**Назначение:** Объяснение выбранного фрагмента кода.
+
+**Промт:**
+
+```markdown
+Explain the following code from file path ${filePath}:${startLine}-${endLine}
+${userInput}
+
+```
+${selectedText}
+```
+```
+
+---
+
+### 5.4 FIX - Исправление Кода
+
+**Назначение:** Исправление проблем в коде с учетом diagnostics.
+
+---
+
+### 5.5 IMPROVE - Улучшение Кода
+
+**Назначение:** Улучшение качества кода с учетом diagnostics.
+
+---
+
+### 5.6 ADD_TO_CONTEXT - Добавление в Контекст
+
+**Назначение:** Добавление содержимого файла в контекст разговора.
+
+---
+
+### 5.7 TERMINAL_ADD_TO_CONTEXT - Терминал в Контекст
+
+**Назначение:** Добавление terminal output в контекст.
+
+---
+
+### 5.8 TERMINAL_FIX - Исправление Команд
+
+**Назначение:** Исправление failing terminal commands.
+
+---
+
+### 5.9 TERMINAL_EXPLAIN - Объяснение Команд
+
+**Назначение:** Объяснение terminal commands.
+
+---
+
+### 5.10 NEW_TASK - Создание Новой Задачи
+
+**Назначение:** Создание новых task instances в режимах.
+
+---

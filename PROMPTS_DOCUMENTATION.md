@@ -316,3 +316,249 @@ Ensure all communication is in {language}.
 ```
 
 ---
+## Промты Инструментов
+
+Эти промты определяют описания и правила использования каждого инструмента, доступного AI агенту.
+
+### 2.1 Инструменты для Работы с Файлами
+
+#### 2.1.1 read_file - Чтение Файлов
+
+**Файл:** `src/core/prompts/tools/read-file.ts:3-80`
+
+**Назначение:** Позволяет агенту читать содержимое одного или нескольких файлов с нумерацией строк и поддержкой диапазонов строк для эффективного чтения больших файлов.
+
+**Ключевые возможности:**
+- Одновременное чтение до N файлов (настраивается, по умолчанию 5)
+- Нумерация строк в формате "1 | const x = 1"
+- Опциональные диапазоны строк для частичного чтения
+- Поддержка PDF и DOCX файлов
+- Стратегия эффективного чтения с объединением близких диапазонов
+
+**Промт:**
+
+```markdown
+## read_file
+Description: Request to read the contents of one or more files. The tool outputs line-numbered content (e.g. "1 | const x = 1") for easy reference when creating diffs or discussing code. Use line ranges to efficiently read specific portions of large files. Supports text extraction from PDF and DOCX files.
+
+**IMPORTANT: You can read a maximum of {N} files in a single request.** If you need to read more files, use multiple sequential read_file requests.
+
+Parameters:
+- args: Contains one or more file elements, where each file contains:
+  - path: (required) File path (relative to workspace directory {cwd})
+  - line_range: (optional) One or more line range elements in format "start-end" (1-based, inclusive)
+
+IMPORTANT: You MUST use this Efficient Reading Strategy:
+- You MUST read all related files and implementations together in a single operation
+- You MUST obtain all necessary context before proceeding with changes
+- You MUST use line ranges to read specific portions of large files
+- You MUST combine adjacent line ranges (<10 lines apart)
+```
+
+---
+
+#### 2.1.2 write_to_file - Запись в Файл
+
+**Файл:** `src/core/prompts/tools/write-to-file.ts:3-40`
+
+**Назначение:** Создание новых файлов или полная перезапись существующих. ОБЯЗАТЕЛЬНО предоставлять ПОЛНОЕ содержимое файла.
+
+**Промт:**
+
+```markdown
+## write_to_file
+Description: Request to write content to a file. This tool is primarily used for **creating new files** or for scenarios where a **complete rewrite of an existing file is intentionally required**. ALWAYS provide the COMPLETE intended content of the file. You MUST include ALL parts of the file, even if they haven't been modified.
+
+Parameters:
+- path: (required) The path of the file to write to (relative to {cwd})
+- content: (required) The COMPLETE file content
+- line_count: (required) The number of lines in the file
+```
+
+---
+
+#### 2.1.3 apply_diff - Хирургическое Редактирование
+
+**Файл:** `src/core/diff/strategies/multi-search-replace.ts:93-181`
+
+**Назначение:** Точечное изменение существующих файлов через поиск и замену. Поддерживает множественные изменения в одном вызове.
+
+**Промт:**
+
+```markdown
+## apply_diff
+Description: Request to apply PRECISE, TARGETED modifications to an existing file by searching for specific sections of content and replacing them. This tool is for SURGICAL EDITS ONLY - specific changes to existing code.
+You can perform multiple distinct search and replace operations within a single apply_diff call by providing multiple SEARCH/REPLACE blocks.
+The SEARCH section must exactly match existing content including whitespace and indentation.
+ALWAYS make as many changes in a single 'apply_diff' request as possible using multiple SEARCH/REPLACE blocks
+
+Diff format:
+<<<<<<< SEARCH
+:start_line: (required) The line number where the search block starts.
+-------
+[exact content to find including whitespace]
+=======
+[new content to replace with]
+>>>>>>> REPLACE
+```
+
+---
+
+### 2.2 Инструменты Поиска и Навигации
+
+#### 2.2.1 search_files - Regex Поиск
+
+**Файл:** `src/core/prompts/tools/search-files.ts:3-22`
+
+**Назначение:** Выполнение regex поиска по файлам в директории с контекстом вокруг совпадений.
+
+**Промт:**
+
+```markdown
+## search_files
+Description: Request to perform a regex search across files in a specified directory, providing context-rich results.
+
+Parameters:
+- path: (required) The path of the directory to search in (relative to {cwd})
+- regex: (required) The regular expression pattern to search for. Uses Rust regex syntax.
+- file_pattern: (optional) Glob pattern to filter files (e.g., '*.ts')
+```
+
+---
+
+#### 2.2.2 codebase_search - Семантический Поиск
+
+**Файл:** `src/core/prompts/tools/codebase-search.ts:3-22`
+
+**Назначение:** Семантический поиск по всей кодовой базе на основе смысла, а не ключевых слов.
+
+**Ключевые особенности:**
+- Поиск функционально релевантного кода
+- Не требует знания точных ключевых слов или имен файлов
+- Понимание реализации функций через несколько файлов
+- Основан на предварительно построенном индексе кода
+
+---
+
+#### 2.2.3 list_files - Список Файлов
+
+**Файл:** `src/core/prompts/tools/list-files.ts:3-19`
+
+**Назначение:** Получение списка файлов в директории с опциональной рекурсией.
+
+---
+
+#### 2.2.4 list_code_definition_names - Список Определений
+
+**Файл:** `src/core/prompts/tools/list-code-definition-names.ts:3-23`
+
+**Назначение:** Получение обзора определений кода (функции, классы, методы) для файлов в директории.
+
+---
+
+### 2.3 Инструменты Выполнения и Взаимодействия
+
+#### 2.3.1 execute_command - Выполнение Команд
+
+**Файл:** `src/core/prompts/tools/execute-command.ts:3-25`
+
+**Назначение:** Выполнение CLI команд в системе пользователя.
+
+**Промт:**
+
+```markdown
+## execute_command
+Description: Request to execute a CLI command on the system. You must tailor your command to the user's system and provide a clear explanation of what the command does. Prefer to execute complex CLI commands over creating executable scripts. Prefer relative commands and paths.
+
+Parameters:
+- command: (required) The CLI command to execute
+- cwd: (optional) The working directory to execute the command in (default: {cwd})
+```
+
+---
+
+#### 2.3.2 ask_followup_question - Задать Вопрос
+
+**Файл:** `src/core/prompts/tools/ask-followup-question.ts:1-27`
+
+**Назначение:** Запрос дополнительной информации у пользователя с предложенными вариантами ответов (2-4 варианта).
+
+---
+
+#### 2.3.3 attempt_completion - Завершение Задачи
+
+**Файл:** `src/core/prompts/tools/attempt-completion.ts:3-22`
+
+**Назначение:** Представление результата работы пользователю после подтверждения успешного выполнения всех предыдущих операций.
+
+**КРИТИЧЕСКОЕ ТРЕБОВАНИЕ:** Этот инструмент НЕЛЬЗЯ использовать до получения подтверждения успеха предыдущих операций от пользователя.
+
+---
+
+### 2.4 Инструменты для Режимов и Задач
+
+#### 2.4.1 new_task - Создание Новой Задачи
+
+**Файл:** `src/core/prompts/tools/new-task.ts:6-67`
+
+**Назначение:** Создание новых экземпляров задач в режимах, которые поддерживают управление задачами.
+
+---
+
+#### 2.4.2 switch_mode - Переключение Режима
+
+**Файл:** `src/core/prompts/tools/switch-mode.ts:1-18`
+
+**Назначение:** Переключение между различными режимами работы агента.
+
+---
+
+#### 2.4.3 fetch_instructions - Получение Инструкций
+
+**Файл:** `src/core/prompts/tools/fetch-instructions.ts:6-33`
+
+**Назначение:** Получение инструкций для выполнения специфичных задач (например, создание режима или MCP сервера).
+
+---
+
+### 2.5 Дополнительные Инструменты
+
+#### 2.5.1 browser_action - Взаимодействие с Браузером
+
+**Файл:** `src/core/prompts/tools/browser-action.ts:3-59`
+
+**Назначение:** Взаимодействие с веб-сайтами через Puppeteer-контролируемый браузер (запуск, навигация, клики, ввод текста, скриншоты).
+
+---
+
+#### 2.5.2 use_mcp_tool - Использование MCP Инструмента
+
+**Файл:** `src/core/prompts/tools/use-mcp-tool.ts:3-37`
+
+**Назначение:** Использование инструментов, предоставляемых MCP серверами.
+
+---
+
+#### 2.5.3 access_mcp_resource - Доступ к MCP Ресурсу
+
+**Файл:** `src/core/prompts/tools/access-mcp-resource.ts:3-24`
+
+**Назначение:** Доступ к ресурсам, предоставляемым MCP серверами.
+
+---
+
+#### 2.5.4 update_todo_list - Обновление Todo Списка
+
+**Файл:** `src/core/prompts/tools/update-todo-list.ts:6-75`
+
+**Назначение:** Управление списком задач с отслеживанием статуса (pending, in_progress, completed).
+
+---
+
+#### 2.5.5 generate_image - Генерация Изображений
+
+**Файл:** `src/core/prompts/tools/generate-image.ts:3-36`
+
+**Назначение:** AI генерация и редактирование изображений через OpenRouter.
+
+---

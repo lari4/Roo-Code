@@ -431,3 +431,270 @@ Task State:
 ```
 
 ---
+
+## 3. Tool Execution Pipeline
+
+**Файлы:** `src/core/tools/BaseTool.ts`, `src/core/tools/parser/NativeToolCallParser.ts`
+
+**Назначение:** Парсинг, валидация и выполнение инструментов из ответов AI.
+
+### Схема Pipeline
+
+```
+┌────────────────────────────────────────────────────────────┐
+│         Tool Call Received from API                        │
+│  (In assistant message content)                            │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 1: Protocol Detection & Parsing                     │
+│                                                            │
+│  IF Native Protocol (OpenAI-style):                        │
+│  ┌──────────────────────────────────────┐                 │
+│  │ NativeToolCallParser.parse()         │                 │
+│  │  • Extract tool_call_id              │                 │
+│  │  • Extract name                      │                 │
+│  │  • Parse JSON arguments              │                 │
+│  │  • Validate against Zod schemas      │                 │
+│  │  • Return typed nativeArgs           │                 │
+│  └──────────────────────────────────────┘                 │
+│                                                            │
+│  IF XML Protocol (Legacy):                                 │
+│  ┌──────────────────────────────────────┐                 │
+│  │ XML Parser                           │                 │
+│  │  • Parse XML tags                    │                 │
+│  │  • Extract parameters                │                 │
+│  │  • Return params object              │                 │
+│  └──────────────────────────────────────┘                 │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 2: Tool Validation                                  │
+│                                                            │
+│  1. Check Tool Availability                                │
+│     • Is tool in available tools list?                     │
+│     • Is tool enabled for current mode?                    │
+│                                                            │
+│  2. Mode-Based Restrictions                                │
+│     ┌────────────────────────────────────┐                │
+│     │ validateToolUse(tool, mode)        │                │
+│     │  • Check mode.groups                │                │
+│     │  • Verify tool group allowed        │                │
+│     │  • For edit tools:                  │                │
+│     │    └─> Check fileRegex restrictions │                │
+│     └────────────────────────────────────┘                │
+│                                                            │
+│  3. Parameter Validation                                   │
+│     • Required params present?                             │
+│     • Correct types?                                       │
+│     • Valid values?                                        │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 3: User Approval (if needed)                        │
+│                                                            │
+│  Check if tool requires approval:                          │
+│  ├─ alwaysAllow tools → Skip approval                      │
+│  ├─ Dangerous operations → Require approval                │
+│  └─ User settings → Check preferences                      │
+│                                                            │
+│  If approval needed:                                       │
+│    └─> Show confirmation dialog                            │
+│       ├─ Approve → Continue                                │
+│       ├─ Reject → Return error                             │
+│       └─ Modify → Update params and continue               │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 4: Tool Execution                                   │
+│                                                            │
+│  Tool Instance Lifecycle:                                  │
+│  ┌──────────────────────────────────────┐                 │
+│  │ BaseTool Abstract Pattern            │                 │
+│  │                                      │                 │
+│  │ 1. constructor(cwd, ...)             │                 │
+│  │    • Initialize tool instance        │                 │
+│  │                                      │                 │
+│  │ 2. handle(params)                    │                 │
+│  │    • Public interface                │                 │
+│  │    • Parameter preprocessing         │                 │
+│  │                                      │                 │
+│  │ 3. execute(params) [abstract]        │                 │
+│  │    • Actual tool logic               │                 │
+│  │    • Implemented by each tool        │                 │
+│  │                                      │                 │
+│  │ 4. Return ToolResult                 │                 │
+│  │    • Success/failure                 │                 │
+│  │    • Output data                     │                 │
+│  │    • Error messages                  │                 │
+│  └──────────────────────────────────────┘                 │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 5: Result Formatting                                │
+│                                                            │
+│  Format for API:                                           │
+│  ┌──────────────────────────────────────┐                 │
+│  │ IF Native Protocol:                  │                 │
+│  │ {                                    │                 │
+│  │   type: "tool_result",               │                 │
+│  │   tool_use_id: "...",                │                 │
+│  │   content: [                         │                 │
+│  │     { type: "text", text: "..." },   │                 │
+│  │     { type: "image", source: {...} } │                 │
+│  │   ]                                  │                 │
+│  │ }                                    │                 │
+│  └──────────────────────────────────────┘                 │
+│                                                            │
+│  ┌──────────────────────────────────────┐                 │
+│  │ IF XML Protocol:                     │                 │
+│  │ <tool_result>                        │                 │
+│  │   <output>...</output>               │                 │
+│  │   <error>...</error>                 │                 │
+│  │ </tool_result>                       │                 │
+│  └──────────────────────────────────────┘                 │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Return to Task Pipeline                                   │
+│  • Add to userMessageContent                               │
+│  • Continue with next tool or next API request             │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Dual Protocol Support
+
+```
+Protocol Handling:
+
+Native Protocol (OpenAI):
+├── Tool Call Structure:
+│   {
+│     id: "call_abc123",
+│     type: "function",
+│     function: {
+│       name: "read_file",
+│       arguments: "{\"path\":\"src/app.ts\"}"
+│     }
+│   }
+│
+├── Parsing:
+│   └─> NativeToolCallParser.parse()
+│       • JSON.parse(arguments)
+│       • Zod validation
+│       • Type-safe nativeArgs
+│
+└── Benefits:
+    • Type safety
+    • Better error messages
+    • Standard format
+
+XML Protocol (Legacy):
+├── Tool Call Structure:
+│   <read_file>
+│     <path>src/app.ts</path>
+│   </read_file>
+│
+├── Parsing:
+│   └─> XML string parsing
+│       • Extract tags
+│       • Build params object
+│
+└── Compatibility:
+    • Backward compatible
+    • Custom format
+    • More verbose
+```
+
+### Tool Instance Management
+
+```
+Tool Singleton Pattern:
+(in presentAssistantMessage)
+
+const tools = {
+  execute_command: new ExecuteCommandTool(cwd, ...),
+  read_file: new ReadFileTool(cwd, ...),
+  write_to_file: new WriteToFileTool(cwd, ...),
+  apply_diff: new ApplyDiffTool(cwd, ...),
+  search_files: new SearchFilesTool(cwd, ...),
+  list_files: new ListFilesTool(cwd, ...),
+  list_code_definition_names: new ListCodeDefinitionNamesTool(cwd, ...),
+  codebase_search: new CodebaseSearchTool(cwd, ...),
+  ask_followup_question: new AskFollowupQuestionTool(...),
+  attempt_completion: new AttemptCompletionTool(...),
+  // ... 20+ tools total
+}
+
+For each tool call:
+  1. Get tool instance: tools[toolName]
+  2. Call: await tool.handle(params)
+  3. Get result
+```
+
+### File Restriction Validation
+
+```
+Edit Tool Restrictions:
+(Example from Mode Config)
+
+Mode: architect
+  groups:
+    - read
+    - - edit
+      - fileRegex: \\.md$
+        description: Markdown files only
+
+Validation Flow:
+  User asks to edit "app.js"
+    │
+    ▼
+  Check mode.groups for edit
+    │
+    ▼
+  Find edit group with fileRegex: \\.md$
+    │
+    ▼
+  Test: "app.js" matches /\\.md$/
+    │
+    ▼
+  Result: NO MATCH
+    │
+    ▼
+  Return FileRestrictionError:
+    "Cannot edit app.js in architect mode.
+     Only files matching \\.md$ are allowed."
+```
+
+### Ключевые Компоненты
+
+**Parsing:**
+- `NativeToolCallParser.parse()` - парсинг native tool calls
+- `parseXmlToolCall()` - парсинг XML tool calls
+
+**Validation:**
+- `validateToolUse()` - проверка permissions
+- `checkFileRestrictions()` - проверка file patterns
+- `validateParams()` - проверка параметров
+
+**Execution:**
+- `BaseTool.handle()` - публичный interface
+- `BaseTool.execute()` - abstract метод реализации
+- `formatToolResult()` - форматирование результата
+
+**Tools (20+):**
+- File Operations: read_file, write_to_file, apply_diff, insert_content
+- Search: search_files, codebase_search, list_code_definition_names
+- System: execute_command, browser_action
+- Interaction: ask_followup_question, attempt_completion
+- Mode: new_task, switch_mode, fetch_instructions
+- MCP: use_mcp_tool, access_mcp_resource
+- Utilities: update_todo_list, generate_image
+
+---

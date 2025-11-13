@@ -1133,3 +1133,363 @@ Example:
 ```
 
 ---
+
+## 6. Codebase Search Pipeline
+
+**Файл:** `src/services/code-index/manager.ts`
+
+**Назначение:** Семантический поиск по кодовой базе с использованием векторных embeddings.
+
+### Схема Indexing Pipeline
+
+```
+┌────────────────────────────────────────────────────────────┐
+│         CodeIndexManager Initialization                    │
+│  • new CodeIndexManager(cwd)                               │
+│  • Check feature enabled & configured                      │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  State: STANDBY → INITIALIZING                             │
+│  • Validate configuration                                  │
+│  • Setup embedding provider                                │
+│  • Check for existing index                                │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 1: Initial Scan                                     │
+│                                                            │
+│  Scan Workspace:                                           │
+│  ┌──────────────────────────────────────┐                 │
+│  │ 1. List all files in workspace       │                 │
+│  │    • Recursive directory traversal   │                 │
+│  │    • Respect .gitignore              │                 │
+│  │    • Filter by supported extensions  │                 │
+│  │                                      │                 │
+│  │ 2. Filter files                      │                 │
+│  │    • Skip node_modules, .git, etc.   │                 │
+│  │    • Only index code files           │                 │
+│  │    • Apply size limits               │                 │
+│  │                                      │                 │
+│  │ 3. Collect file metadata             │                 │
+│  │    • File path                       │                 │
+│  │    • Last modified time              │                 │
+│  │    • File size                       │                 │
+│  └──────────────────────────────────────┘                 │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 2: File Processing & Chunking                       │
+│                                                            │
+│  For each file:                                            │
+│  ┌──────────────────────────────────────┐                 │
+│  │ 1. Read file content                 │                 │
+│  │    • Load file into memory           │                 │
+│  │    • Parse as text                   │                 │
+│  │                                      │                 │
+│  │ 2. Extract code structure            │                 │
+│  │    • Parse AST (if possible)         │                 │
+│  │    • Identify functions, classes     │                 │
+│  │    • Extract comments                │                 │
+│  │                                      │                 │
+│  │ 3. Create chunks                     │                 │
+│  │    • Split into semantic units       │                 │
+│  │    • ~200-500 token chunks           │                 │
+│  │    • Maintain context overlap        │                 │
+│  │                                      │                 │
+│  │ 4. Generate chunk metadata           │                 │
+│  │    {                                 │                 │
+│  │      id: "file-path:chunk-123",      │                 │
+│  │      filePath: "src/app.ts",         │                 │
+│  │      startLine: 10,                  │                 │
+│  │      endLine: 50,                    │                 │
+│  │      content: "...",                 │                 │
+│  │      type: "function"                │                 │
+│  │    }                                 │                 │
+│  └──────────────────────────────────────┘                 │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 3: Embedding Generation                             │
+│                                                            │
+│  Batch Processing:                                         │
+│  ┌──────────────────────────────────────┐                 │
+│  │ For each batch of chunks (e.g., 100) │                 │
+│  │                                      │                 │
+│  │ 1. Call Embedding Provider           │                 │
+│  │    • Local: Transformers.js          │                 │
+│  │    • Cloud: OpenAI, Voyage, etc.     │                 │
+│  │                                      │                 │
+│  │ 2. Generate embeddings               │                 │
+│  │    • Input: chunk.content            │                 │
+│  │    • Output: float[] (e.g., 768-dim) │                 │
+│  │                                      │                 │
+│  │ 3. Store embeddings                  │                 │
+│  │    • Vector database (or in-memory)  │                 │
+│  │    • Map: chunkId → embedding        │                 │
+│  └──────────────────────────────────────┘                 │
+│                                                            │
+│  State: INDEXING                                           │
+│  • Progress updates to UI                                  │
+│  • Cancellable                                             │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Phase 4: Index Storage & Caching                          │
+│                                                            │
+│  1. Save Index to Disk                                     │
+│     • .roo/code-index/vectors.json                         │
+│     • .roo/code-index/metadata.json                        │
+│     • .roo/code-index/cache.json                           │
+│                                                            │
+│  2. Create Cache Entries                                   │
+│     • File hash → embedding mapping                        │
+│     • Avoid re-indexing unchanged files                    │
+│                                                            │
+│  3. Setup File Watchers                                    │
+│     • Watch for file changes                               │
+│     • Incremental updates                                  │
+│                                                            │
+│  State: INDEXED                                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Search Execution Pipeline
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  Agent calls codebase_search tool                          │
+│  {                                                         │
+│    query: "authentication implementation",                │
+│    max_results: 5                                         │
+│  }                                                         │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Step 1: Check Index State                                 │
+│  • Is index initialized?                                   │
+│  • If not indexed → Return error or auto-index             │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Step 2: Query Embedding                                   │
+│  • Generate embedding for query                            │
+│  • embedding = embedProvider.embed("authentication...")    │
+│  • Result: float[] (same dimension as index)               │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Step 3: Vector Search                                     │
+│                                                            │
+│  Similarity Search:                                        │
+│  ┌──────────────────────────────────────┐                 │
+│  │ 1. Compute Cosine Similarity         │                 │
+│  │    For each indexed chunk:           │                 │
+│  │      similarity = cosine(            │                 │
+│  │        queryEmbedding,               │                 │
+│  │        chunkEmbedding                │                 │
+│  │      )                               │                 │
+│  │                                      │                 │
+│  │ 2. Rank by Similarity                │                 │
+│  │    • Sort descending                 │                 │
+│  │    • Filter by threshold (e.g., >0.7)│                 │
+│  │                                      │                 │
+│  │ 3. Take Top N Results                │                 │
+│  │    • max_results from query          │                 │
+│  │    • Return chunk metadata + score   │                 │
+│  └──────────────────────────────────────┘                 │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Step 4: Keyword Fallback (if needed)                      │
+│  • If vector search returns < threshold results            │
+│  • Fall back to keyword search (BM25 or regex)             │
+│  • Combine results                                         │
+└──────────────────┬─────────────────────────────────────────┘
+                   │
+                   ▼
+┌────────────────────────────────────────────────────────────┐
+│  Step 5: Format Results                                    │
+│                                                            │
+│  For each result:                                          │
+│  {                                                         │
+│    filePath: "src/auth/login.ts",                         │
+│    startLine: 25,                                         │
+│    endLine: 45,                                           │
+│    score: 0.89,                                           │
+│    content: "...",                                        │
+│    context: "function handleLogin(...) { ... }"           │
+│  }                                                         │
+│                                                            │
+│  Return formatted results to agent                         │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Incremental Update Flow
+
+```
+File Changed (via Watcher)
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  Detect Change Type                 │
+│  • File modified                    │
+│  • File added                       │
+│  • File deleted                     │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  Batch Updates (Debounced)          │
+│  • Wait 500ms for more changes      │
+│  • Accumulate multiple files        │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  Process Changed Files              │
+│  • Re-chunk modified files          │
+│  • Generate new embeddings          │
+│  • Update index                     │
+│  • Update cache                     │
+└──────────────┬──────────────────────┘
+               │
+               ▼
+┌─────────────────────────────────────┐
+│  Save Updated Index                 │
+│  • Persist to disk                  │
+│  • Ready for next search            │
+└─────────────────────────────────────┘
+```
+
+### State Machine
+
+```
+State Transitions:
+
+STANDBY
+  │
+  ├─> [initialize()] → INITIALIZING
+  │                       │
+  │                       └─> [validation success] → INDEXING
+  │                                                     │
+  └─> [disable feature]                                │
+                                                        ▼
+                                                    INDEXED
+                                                        │
+                                                        ├─> [file changed] → UPDATING
+                                                        │                       │
+                                                        │                       └─> INDEXED
+                                                        │
+                                                        └─> [error] → ERROR
+                                                                        │
+                                                                        └─> [retry] → INDEXING
+```
+
+### Ключевые Компоненты
+
+**Initialization:**
+- `CodeIndexManager.initialize()` - запуск индексации
+- `validateConfiguration()` - проверка настроек
+- `setupEmbeddingProvider()` - настройка embedding provider
+
+**Indexing:**
+- `scanWorkspace()` - сканирование файлов
+- `processFile(path)` - обработка файла
+- `chunkCode(content)` - разбиение на chunks
+- `generateEmbeddings(chunks)` - генерация embeddings
+- `saveIndex()` - сохранение индекса
+
+**Searching:**
+- `search(query, options)` - главная функция поиска
+- `embedQuery(query)` - embedding запроса
+- `vectorSearch(embedding)` - векторный поиск
+- `rankResults(results)` - ранжирование
+- `formatResults(results)` - форматирование
+
+**Incremental Updates:**
+- `watchFiles()` - мониторинг изменений
+- `handleFileChange(path)` - обработка изменения
+- `updateIndex(file)` - обновление индекса
+
+---
+
+## Заключение
+
+Документация покрывает 6 основных пайплайнов Roo Code агента:
+
+1. **System Prompt Generation** - 12-секционная сборка промтов
+2. **Task Execution** - главный request/response loop
+3. **Tool Execution** - парсинг, валидация и выполнение инструментов
+4. **Mode Selection & Switching** - управление режимами
+5. **MCP Integration** - подключение внешних серверов
+6. **Codebase Search** - семантический поиск по коду
+
+### Ключевые Паттерны
+
+**Synchronization:**
+- Mutexes (presentAssistantMessageLocked)
+- Flags (userMessageContentReady)
+- Promises (taskModeReady)
+- Reference counting (MCP servers)
+
+**Data Flow:**
+- Queue-based stack (recursivelyMakeClineRequests)
+- Accumulation patterns (userMessageContent)
+- Streaming (API responses)
+
+**Protocol Support:**
+- Dual protocol (Native + XML)
+- Type safety (Zod validation)
+- Backward compatibility
+
+**Lifecycle Management:**
+- State machines (CodeIndexManager)
+- Reference counting (McpHub)
+- Debouncing (config updates, file watching)
+
+### Integration Points
+
+```
+High-Level Flow:
+
+User Input
+    ↓
+Task Initialization
+    ↓
+Mode Selection ──→ System Prompt Generation
+    ↓                      ↓
+Task Loop ←───────────────┘
+    ↓
+API Request
+    ↓
+Response Streaming
+    ↓
+Tool Parsing & Validation
+    ↓
+    ├─→ File Operations
+    ├─→ Codebase Search
+    ├─→ MCP Tool Calls
+    └─→ User Interaction
+         ↓
+Tool Results Accumulation
+    ↓
+Next API Request (recursive)
+    ↓
+attempt_completion
+    ↓
+Task Complete
+```
+
+Все пайплайны работают вместе, формируя единую систему обработки задач с гибкой конфигурацией, мощными возможностями поиска и интеграцией с внешними сервисами.
+
+---
